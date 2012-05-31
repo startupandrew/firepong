@@ -1,0 +1,156 @@
+<html>
+<head>
+  <title>FirePong</title>
+  <script type="text/javascript" src="firebase.js"></script>
+  <script type='text/javascript' src='jquery-1.7.1.js'></script>
+  <link rel="stylesheet" type="text/css" href="firepong.css">
+</head>
+<body style="text-align: center;">
+<h1>FirePong</h1>
+<div>
+  <canvas id="canvas0" width="480" height="480" class="board"></canvas>
+</div>
+<div id='playertext'>You are currently a spectator.</div>
+<input type="button" id="clear" value="Restart Game" />
+
+<script type='text/javascript'>
+
+  var rootRef = new Firebase("http://localhost:9000/firepong")
+  var gamestateRef = rootRef.child("gamestate");
+  var playersRef = rootRef.child("players");
+
+  var isWatching = true;
+
+  var myPlayerNum = 0;
+
+  //set up the canvas
+  var c=document.getElementById("canvas0");
+  var ctx=c.getContext("2d");
+
+  //draw the vertical & horizontal lines
+  ctx.fillStyle="#000000";
+
+  //set up fonts
+  ctx.font = '160px sans-serif';
+  ctx.textBaseline = 'top';
+
+  function renderGame(state) {
+    if(state === null) return;
+
+    ctx.fillStyle="#ffffff";
+    ctx.fillRect(0, 0, 480, 480);
+    ctx.fillStyle="#000000";
+
+    //draw paddle 0
+    if(state.paddle0 !== undefined) {
+      ctx.fillRect(0, state.paddle0, 25, 90);
+    }
+
+    //draw paddle 1
+    if(state.paddle1 !== undefined) {
+      ctx.fillRect(455, state.paddle1, 25, 90);
+    }
+
+    //draw ball
+    if(state.ball !== undefined) {
+      ctx.beginPath();
+      ctx.arc(state.ball.x, state.ball.y, 20, 0, 2*Math.PI, false);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  gamestateRef.on("value", function(d) {
+    renderGame(d.val());
+  });
+
+  $("#clear").click(function() {
+    gamestateRef.set(null);
+  });
+
+  var startPlaying = function(playerNum) {
+    myPlayerNum = playerNum;
+    $("#playertext").text("You are player: " + playerNum);
+    gamestateRef.child("paddle" + playerNum).set(195);
+  }
+
+  var waitToJoin = function() {
+    // Listen on 'online' location for player0 and player1.
+    playersRef.child('player0/online').on('value', function(onlineSnap) {
+      if (onlineSnap.val() === null && true === isWatching) {
+        tryToJoin(0);
+      }
+    });
+
+    playersRef.child('player1/online').on('value', function(onlineSnap) {
+      if (onlineSnap.val() === null && true === isWatching) {
+        tryToJoin(1);
+      }
+    });
+  };
+
+  /**
+   * Try to join the game as the specified playerNum.
+   */
+  var tryToJoin = function(playerNum) {
+    // Set ourselves as joining to make sure we don't try to join as both players. :-)
+    isWatching = false;
+
+    var meRef = playersRef.child('player' + playerNum + '/online');
+    // Use a transaction to make sure we don't conflict with other people trying to join.
+    meRef.transaction(function(onlineVal) {
+      if (onlineVal === null) {
+        return true; // Try to set online to true.
+      } else {
+        return; // Somebody must have beat us.  Abort the transaction.
+      }
+    }, function(success) {
+      if (success) { // We got in!
+        isWatching = false;
+        meRef.removeOnDisconnect();
+        meRef.on("value", waitToJoin);
+        startPlaying(playerNum);
+      } else {
+        isWatching = true;
+      }
+    });
+  };
+
+  waitToJoin();
+
+  var direction = 0;
+
+  setInterval(function() {
+    if(direction != 0) {
+      gamestateRef.child("paddle" + myPlayerNum).transaction(function(v) {
+        var retVal = v + direction;
+
+        if(retVal < 0) {
+          retVal = 0;
+        }
+        if(retVal > (480-90)) {
+          retVal = (480-90);
+        }
+        return retVal;
+      });
+    }
+  }, 50);
+
+  $(document).keydown(function(a) {
+    if(a.keyCode == 38) {
+      direction = -6;
+    } else if(a.keyCode == 40) {
+      direction = 6;
+    } else {
+      direction = 0;
+    }
+  });
+
+  $(document).keyup(function(a) {
+    direction = 0;
+  });
+
+
+</script>
+</body>
+</html>
